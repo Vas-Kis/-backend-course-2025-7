@@ -18,16 +18,17 @@ if (!options.host || !options.port || !options.cache) {
   process.exit(1);
 }
 
+const cache_path = path.resolve(options.cache);
 await fs.mkdir(cache_path, { recursive: true });
 
 const app = express();
 
-let inventory [];
+let inventory = [];
 
 app.get("/inventory", (req, res) => {
-    res.json();
+    res.json(inventory);
 });
 
-app.listen(port, host, () => {
-  console.log(`Proxy server running at http://${host}:${port}/`);
+app.listen(options.port, options.host, () => {
+  console.log(`The server running at http://${options.host}:${options.port}/`);
 });
