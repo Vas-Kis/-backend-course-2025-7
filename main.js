@@ -45,12 +45,64 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
+/**
+ * @swagger
+ * /RegisterForm.html:
+ *   get:
+ *     summary: Повертає HTML-форму для реєстрації інвентаря
+ *     tags: [Forms]
+ *     responses:
+ *       200:
+ *         description: HTML-сторінка з формою
+ */
+
 app.get('/RegisterForm.html', (_req, res) => {
   res.status(200).sendFile(path.join(__dirname, 'RegisterForm.html')); });
+
+/**
+ * @swagger
+ * /SearchForm.html:
+ *   get:
+ *     summary: Повертає HTML-форму для пошуку елементів інвентаря
+ *     tags: [Forms]
+ *     responses:
+ *       200:
+ *         description: HTML-сторінка з формою пошуку
+ */
 
 app.get('/SearchForm.html', (_req, res) => {
   res.status(200).sendFile(path.join(__dirname, 'SearchForm.html')); });
   
+/**
+ * @swagger
+ * /register:
+ *   post:
+ *     summary: Реєструє новий предмет інвентаря
+ *     tags: [Inventory]
+ *     consumes:
+ *       - multipart/form-data
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               inventory_name:
+ *                 type: string
+ *                 description: Назва інвентаря
+ *               description:
+ *                 type: string
+ *               photo:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: Створений елемент інвентаря
+ *       400:
+ *         description: Некоректні вхідні дані
+ */
+
 app.post('/register', upload.single('photo'), async (req, res) => {
   try {
     const { inventory_name, description } = req.body;
@@ -85,6 +137,25 @@ app.post('/register', upload.single('photo'), async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+
+/**
+ * @swagger
+ * /inventory/{id}/photo:
+ *   get:
+ *     summary: Повертає фото предмету інвентаря
+ *     tags: [Inventory]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Фото предмету
+ *       404:
+ *         description: Не знайдено елемент або його фото
+ */
 
 app.get('/inventory/:id/photo', async (req, res) => {
   try {
@@ -125,6 +196,19 @@ app.get('/inventory/:id/photo', async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /inventory:
+ *   get:
+ *     summary: Отримує всі елементи інвентаря
+ *     tags: [Inventory]
+ *     responses:
+ *       200:
+ *         description: Список предметів інвентаря
+ *       404:
+ *         description: База не знайдена
+ */
+
 app.get('/inventory', async (_req, res) => {
   try {
     const dbData = await fs.readFile(database_path, 'utf8');
@@ -150,6 +234,25 @@ app.get('/inventory', async (_req, res) => {
     }
   }
 });
+
+/**
+ * @swagger
+ * /inventory/{id}:
+ *   get:
+ *     summary: Отримує предмет інвентаря за ID
+ *     tags: [Inventory]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+     responses:
+ *       200:
+ *         description: Дані елемента інвентаря
+ *       404:
+ *         description: Не знайдено
+ */
 
 app.get('/inventory/:id', async (req, res) => {
   try {
@@ -187,6 +290,36 @@ app.get('/inventory/:id', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+
+/**
+ * @swagger
+ * /inventory/{id}:
+ *   put:
+ *     summary: Оновлює дані предмета інвентаря
+ *     tags: [Inventory]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Оновлений елемент
+ *       404:
+ *         description: Не знайдено
+ */
 
 app.put('/inventory/:id', async (req, res) => {
   try {
@@ -231,6 +364,37 @@ app.put('/inventory/:id', async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /inventory/{id}/photo:
+ *   put:
+ *     summary: Оновлює фото предмета інвентаря
+ *     tags: [Inventory]
+ *     consumes:
+ *       - multipart/form-data
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               photo:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Фото оновлено
+ *       404:
+ *         description: Елемент не знайдено
+ */
+
 app.put('/inventory/:id/photo', upload.single('photo'), async (req, res) => {
   try {
     const requestedId = parseInt(req.params.id, 10);
@@ -273,6 +437,25 @@ app.put('/inventory/:id/photo', upload.single('photo'), async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /inventory/{id}:
+ *   delete:
+ *     summary: Видаляє предмет інвентаря
+ *     tags: [Inventory]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Видалено успішно
+ *       404:
+ *         description: Елемент не знайдено
+ */
+
 app.delete('/inventory/:id', async (req, res) => {
   try {
     const requestedId = parseInt(req.params.id, 10);
@@ -312,6 +495,31 @@ app.delete('/inventory/:id', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+
+/**
+ * @swagger
+ * /search:
+ *   get:
+ *     summary: Пошук елемента інвентаря за ID
+ *     tags: [Inventory]
+ *     parameters:
+ *       - in: query
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *       - in: query
+ *         name: has_photo
+ *         schema:
+ *           type: string
+ *           enum: [on]
+ *         description: Якщо 'on', повертається також URL фото
+ *     responses:
+ *       200:
+ *         description: Результат пошуку
+ *       404:
+ *         description: Не знайдено
+ */
 
 app.get('/search', async (req, res) => {
   try {
