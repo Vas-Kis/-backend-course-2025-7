@@ -1,4 +1,3 @@
-import { program } from 'commander'
 import * as fs from 'fs/promises';
 import express from 'express';
 import path from 'path';
@@ -7,21 +6,13 @@ import multer from 'multer';
 import swaggerUi from 'swagger-ui-express';
 import swaggerJsdoc from 'swagger-jsdoc';
 
-program
-  .option('-H, --host <type>', 'Server host')
-  .option('-p, --port <type>', 'Server port')
-  .option('-c, --cache <type>', 'Cache folder path');
-
-program.parse(process.argv);
-const options = program.opts();
-
-if (!options.host || !options.port || !options.cache) {
-  console.error('Error : please specify the neccesary input parameters! (host, port and cache folder)');
-  process.exit(1); }
+const HOST  = process.env.HOST  || '0.0.0.0';
+const PORT  = process.env.PORT  || 3000;
+const CACHE = process.env.CACHE || './cache';
 
 const app = express();
 app.use(express.json());
-const cache_path = path.resolve(options.cache);
+const cache_path = path.resolve(CACHE);
 const database_path = path.join(cache_path, 'db.json')
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,7 +21,7 @@ const swaggerOptions = {
   definition: {
     openapi: '3.0.0',
     info: { title: 'Inventory Service API', version: '1.0.0', description: 'Inventory Service API', },
-    servers: [ {url: '/', description: 'Current Server'} ],
+    servers: [{ url: `http://localhost:${PORT}` }]
   }, apis: ['./main.js'],};
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
@@ -576,8 +567,8 @@ app.all('/inventory', (_req, res) => {
   try {
     await fs.mkdir(cache_path, { recursive: true });
     console.log('Cache folder directory', cache_path);
-    app.listen(options.port, options.host, () => {
-      console.log(`Server started on http://${options.host}:${options.port}`);
+    app.listen(PORT, HOST, () => {
+      console.log(`Server started on http://${HOST}:${PORT}`);
     });
   } catch (err) {
     console.error('Error :', err.message);
