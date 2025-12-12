@@ -1,189 +1,92 @@
-import * as fs from 'fs/promises';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import swaggerUi from 'swagger-ui-express';
 import swaggerJsdoc from 'swagger-jsdoc';
+import pkg from 'pg';
+/*yo*/
+const { Pool } = pkg;
 
-const HOST  = process.env.HOST  || '0.0.0.0';
-const PORT  = process.env.PORT  || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+const PORT = process.env.PORT || 3000;
 const CACHE = process.env.CACHE || './cache';
+
+const pool = new Pool({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+});
 
 const app = express();
 app.use(express.json());
+
 const cache_path = path.resolve(CACHE);
-const database_path = path.join(cache_path, 'db.json')
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const swaggerOptions = {
   definition: {
     openapi: '3.0.0',
-    info: { title: 'Inventory Service API', version: '1.0.0', description: 'Inventory Service API', },
-    servers: [{ url: `http://localhost:${PORT}` }]
-  }, apis: ['./main.js'],};
+    info: {
+      title: 'Inventory Service API',
+      version: '1.0.0',
+      description: 'Inventory Service API',
+    },
+    servers: [{ url: `http://localhost:${PORT}` }],
+  },
+  apis: ['./main.js'],
+};
+
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 const storage = multer.diskStorage({
   destination: cache_path,
   filename: (_req, file, cb) => {
-    const fileExt = path.extname(file.originalname);
-    const newName = Date.now() + fileExt; 
-    cb(null, newName);
-  }
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}${ext}`);
+  },
 });
-const upload = multer({ storage: storage });
-
-/**
- * @swagger
- * /RegisterForm.html:
- *   get:
- *     summary: Повертає HTML-форму для реєстрації інвентаря
- *     tags: [Forms]
- *     responses:
- *       200:
- *         description: HTML-сторінка з формою
- */
+const upload = multer({ storage });
 
 app.get('/RegisterForm.html', (_req, res) => {
-  res.status(200).sendFile(path.join(__dirname, 'RegisterForm.html')); });
-
-/**
- * @swagger
- * /SearchForm.html:
- *   get:
- *     summary: Повертає HTML-форму для пошуку елементів інвентаря
- *     tags: [Forms]
- *     responses:
- *       200:
- *         description: HTML-сторінка з формою пошуку
- */
+  res.sendFile(path.join(__dirname, 'RegisterForm.html'));
+});
 
 app.get('/SearchForm.html', (_req, res) => {
-  res.status(200).sendFile(path.join(__dirname, 'SearchForm.html')); });
-  
+  res.sendFile(path.join(__dirname, 'SearchForm.html'));
+});
+
 /**
  * @swagger
  * /register:
  *   post:
  *     summary: Реєструє новий предмет інвентаря
  *     tags: [Inventory]
- *     consumes:
- *       - multipart/form-data
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               inventory_name:
- *                 type: string
- *                 description: Назва інвентаря
- *               description:
- *                 type: string
- *               photo:
- *                 type: string
- *                 format: binary
- *     responses:
- *       201:
- *         description: Створений елемент інвентаря
- *       400:
- *         description: Некоректні вхідні дані
  */
-
 app.post('/register', upload.single('photo'), async (req, res) => {
   try {
     const { inventory_name, description } = req.body;
     if (!inventory_name) {
-      return res.status(400).send('Error: "inventory_name" is required.');
+      return res.status(400).send('inventory_name is required');
     }
-    let inventory = [];
-    try {
-      const dbData = await fs.readFile(database_path, 'utf8');
-      inventory = JSON.parse(dbData);
-    } catch (err) {
-      if (err.code !== 'ENOENT') throw err; 
-    }
-    
-    const maxId = inventory.reduce((max, item) => Math.max(max, item.id), 0);
-    const newId = maxId + 1;
-    const photoName = req.file ? req.file.filename : null;
 
-    const newItem = {
-      id: newId, 
-      name: inventory_name,
-      description: description || '',
-      photo: photoName };
+    const photo = req.file ? req.file.filename : null;
 
-    inventory.push(newItem);
-    await fs.writeFile(database_path, JSON.stringify(inventory, null, 2));
-    console.log(`Registered item ${newId} with photo ${photoName}`);
-    res.status(201).json(newItem);
+    const result = await pool.query(
+      `INSERT INTO inventory (name, description, photo)
+       VALUES ($1, $2, $3)
+       RETURNING id, name, description, photo`,
+      [inventory_name, description || '', photo]
+    );
 
+    res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error('Error processing /register request:', err);
-    res.status(500).send('Internal Server Error');
-  }
-});
-
-/**
- * @swagger
- * /inventory/{id}/photo:
- *   get:
- *     summary: Повертає фото предмету інвентаря
- *     tags: [Inventory]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *     responses:
- *       200:
- *         description: Фото предмету
- *       404:
- *         description: Не знайдено елемент або його фото
- */
-
-app.get('/inventory/:id/photo', async (req, res) => {
-  try {
-    const requestedId = parseInt(req.params.id, 10);
-    if (isNaN(requestedId)) {
-      return res.status(400).send('Invalid ID.'); }
-    let dbData;
-    try {
-      dbData = await fs.readFile(database_path, 'utf8');
-    } catch (dbErr) {
-      if (dbErr.code === 'ENOENT') {
-        return res.status(404).send('Inventory database not found.'); }
-      throw dbErr; }
-
-    const inventory = JSON.parse(dbData);
-    const item = inventory.find(i => i.id === requestedId);
-    if (!item) {
-      return res.status(404).send(`Item with ID ${requestedId} not found.`);
-    }
-    if (!item.photo) {
-      return res.status(404).send('Item has no photo.');
-    }
-    const photoPath = path.join(cache_path, item.photo);
-    
-    res.sendFile(photoPath, (err) => {
-      if (err) {
-        if (err.code === 'ENOENT') {
-          res.status(404).send('Photo file not found on disk.');
-        } else {
-          console.error('Error sending file:', err);
-          res.status(500).send('Server error sending file.');
-        }
-      }
-    });
-  } catch (err) {
-    console.error('Error processing /inventory/:id/photo', err);
-    res.status(500).send('Internal Server Error');
+    console.error(err);
+    res.status(500).send('DB error');
   }
 });
 
@@ -193,36 +96,32 @@ app.get('/inventory/:id/photo', async (req, res) => {
  *   get:
  *     summary: Отримує всі елементи інвентаря
  *     tags: [Inventory]
- *     responses:
- *       200:
- *         description: Список предметів інвентаря
- *       404:
- *         description: База не знайдена
  */
-
 app.get('/inventory', async (_req, res) => {
   try {
-    const dbData = await fs.readFile(database_path, 'utf8');
-    const inventory = JSON.parse(dbData);
-    const inventoryWithUrls = inventory.map(item => {
-      const { photo, ...rest } = item;
-      if (photo) {
-        return {
-          ...rest,
-          photo_url: `/inventory/${item.id}/photo`
-        };
-      }
-      return rest;
-    });
-    res.json(inventoryWithUrls);
+    const result = await pool.query(
+      'SELECT id, name, description, photo FROM inventory'
+    );
 
+    const data = result.rows.map(item =>
+      item.photo
+        ? {
+            id: item.id,
+            name: item.name,
+            description: item.description,
+            photo_url: `/inventory/${item.id}/photo`,
+          }
+        : {
+            id: item.id,
+            name: item.name,
+            description: item.description,
+          }
+    );
+
+    res.json(data);
   } catch (err) {
-    if (err.code === 'ENOENT') {
-      res.status(404).send('Inventory database not found.');
-    } else {
-      console.error('Error reading db.json:', err);
-      res.status(500).send('Server Error');
-    }
+    console.error(err);
+    res.status(500).send('DB error');
   }
 });
 
@@ -232,53 +131,63 @@ app.get('/inventory', async (_req, res) => {
  *   get:
  *     summary: Отримує предмет інвентаря за ID
  *     tags: [Inventory]
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: integer
- *         required: true
-     responses:
- *       200:
- *         description: Дані елемента інвентаря
- *       404:
- *         description: Не знайдено
  */
-
 app.get('/inventory/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    return res.status(400).send('Invalid ID');
+  }
+
   try {
-    const requestedId = parseInt(req.params.id, 10);
-    if (isNaN(requestedId)) {
-      return res.status(400).send('Invalid ID. Must be a number.');
+    const result = await pool.query(
+      'SELECT id, name, description, photo FROM inventory WHERE id = $1',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).send('Item not found');
     }
-    let dbData;
-    try {
-      dbData = await fs.readFile(database_path, 'utf8');
-    } catch (dbErr) {
-      if (dbErr.code === 'ENOENT') {
-        return res.status(404).send('Inventory database not found.');
-      }
-      throw dbErr;
+
+    const item = result.rows[0];
+    if (item.photo) {
+      item.photo_url = `/inventory/${item.id}/photo`;
+      delete item.photo;
     }
-    const inventory = JSON.parse(dbData);
-    const item = inventory.find(i => i.id === requestedId);
-    if (!item) {
-      return res.status(404).send(`Item with ID ${requestedId} not found.`);
-    }
-    const { photo, ...rest } = item;
-    let itemResponse;
-    if (photo) {
-      itemResponse = {
-        ...rest,
-        photo_url: `/inventory/${item.id}/photo`
-      };
-    } else {
-      itemResponse = rest;
-    }
-    res.json(itemResponse);
+
+    res.json(item);
   } catch (err) {
-    console.error('Error processing /inventory/:id', err);
-    res.status(500).send('Internal Server Error');
+    console.error(err);
+    res.status(500).send('DB error');
+  }
+});
+
+/**
+ * @swagger
+ * /inventory/{id}/photo:
+ *   get:
+ *     summary: Повертає фото предмету інвентаря
+ *     tags: [Inventory]
+ */
+app.get('/inventory/:id/photo', async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    return res.status(400).send('Invalid ID');
+  }
+
+  try {
+    const result = await pool.query(
+      'SELECT photo FROM inventory WHERE id = $1',
+      [id]
+    );
+
+    if (result.rows.length === 0 || !result.rows[0].photo) {
+      return res.status(404).send('Photo not found');
+    }
+
+    res.sendFile(path.join(cache_path, result.rows[0].photo));
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('DB error');
   }
 });
 
@@ -288,70 +197,38 @@ app.get('/inventory/:id', async (req, res) => {
  *   put:
  *     summary: Оновлює дані предмета інвентаря
  *     tags: [Inventory]
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: integer
- *         required: true
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *               description:
- *                 type: string
- *     responses:
- *       200:
- *         description: Оновлений елемент
- *       404:
- *         description: Не знайдено
  */
-
 app.put('/inventory/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const { name, description } = req.body;
+  if (isNaN(id)) {
+    return res.status(400).send('Invalid ID');
+  }
+
   try {
-    const requestedId = parseInt(req.params.id, 10);
-    const { name, description } = req.body;
-    if (isNaN(requestedId)) {
-      return res.status(400).send('Invalid ID.');
-    }
-    let inventory;
-    try {
-      const dbData = await fs.readFile(database_path, 'utf8');
-      inventory = JSON.parse(dbData);
-    } catch (dbErr) {
-      if (dbErr.code === 'ENOENT') {
-        return res.status(404).send('Inventory database not found.');
-      }
-      throw dbErr;
-    }
-    const itemIndex = inventory.findIndex(i => i.id === requestedId);
-    if (itemIndex === -1) {
-      return res.status(404).send(`Item with ID ${requestedId} not found.`);
-    }
-    const item = inventory[itemIndex];
-    if (name !== undefined) {
-      item.name = name;
-    }
-    if (description !== undefined) {
-      item.description = description;
+    const result = await pool.query(
+      `UPDATE inventory
+       SET name = COALESCE($1, name),
+           description = COALESCE($2, description)
+       WHERE id = $3
+       RETURNING id, name, description, photo`,
+      [name, description, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).send('Item not found');
     }
 
-    await fs.writeFile(database_path, JSON.stringify(inventory, null, 2));
-    const { photo, ...rest } = item;
-    const responseItem = { ...rest };
-    if (photo) {
-      responseItem.photo_url = `/inventory/${item.id}/photo`;
+    const item = result.rows[0];
+    if (item.photo) {
+      item.photo_url = `/inventory/${item.id}/photo`;
+      delete item.photo;
     }
-    res.json(responseItem);
 
+    res.json(item);
   } catch (err) {
-    console.error('Error processing PUT /inventory/:id', err);
-    res.status(500).send('Internal Server Error');
+    console.error(err);
+    res.status(500).send('DB error');
   }
 });
 
@@ -361,70 +238,27 @@ app.put('/inventory/:id', async (req, res) => {
  *   put:
  *     summary: Оновлює фото предмета інвентаря
  *     tags: [Inventory]
- *     consumes:
- *       - multipart/form-data
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: integer
- *         required: true
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               photo:
- *                 type: string
- *                 format: binary
- *     responses:
- *       200:
- *         description: Фото оновлено
- *       404:
- *         description: Елемент не знайдено
  */
-
 app.put('/inventory/:id/photo', upload.single('photo'), async (req, res) => {
-  try {
-    const requestedId = parseInt(req.params.id, 10);
-    if (isNaN(requestedId)) {
-      return res.status(400).send('Invalid ID.');
-    }
-    if (!req.file) {
-      return res.status(400).send('No photo file uploaded.');
-    }
-    let inventory;
-    try {
-      const dbData = await fs.readFile(database_path, 'utf8');
-      inventory = JSON.parse(dbData);
-    } catch (dbErr) {
-      if (dbErr.code === 'ENOENT') {
-        return res.status(404).send('Inventory database not found.');
-      }
-      throw dbErr;
-    }
-    const itemIndex = inventory.findIndex(i => i.id === requestedId);
-    if (itemIndex === -1) {
-      await fs.unlink(req.file.path); 
-      return res.status(404).send(`Item with ID ${requestedId} not found.`);
-    }
-    const oldPhotoName = inventory[itemIndex].photo;
-    if (oldPhotoName) {
-      try {
-        await fs.unlink(path.join(cache_path, oldPhotoName));
-      } catch (unlinkErr) {
-        console.warn(`Could not delete old photo: ${oldPhotoName}`, unlinkErr.message);
-      }
-    }
-    inventory[itemIndex].photo = req.file.filename;
-    await fs.writeFile(database_path, JSON.stringify(inventory, null, 2));
-    res.status(200).send('Photo updated successfully.');
+  const id = Number(req.params.id);
+  if (isNaN(id) || !req.file) {
+    return res.status(400).send('Invalid request');
+  }
 
+  try {
+    const result = await pool.query(
+      'UPDATE inventory SET photo = $1 WHERE id = $2 RETURNING id',
+      [req.file.filename, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).send('Item not found');
+    }
+
+    res.send('Photo updated');
   } catch (err) {
-    console.error('Error processing PUT /inventory/:id/photo', err);
-    res.status(500).send('Internal Server Error');
+    console.error(err);
+    res.status(500).send('DB error');
   }
 });
 
@@ -434,144 +268,37 @@ app.put('/inventory/:id/photo', upload.single('photo'), async (req, res) => {
  *   delete:
  *     summary: Видаляє предмет інвентаря
  *     tags: [Inventory]
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: integer
- *         required: true
- *     responses:
- *       200:
- *         description: Видалено успішно
- *       404:
- *         description: Елемент не знайдено
  */
-
 app.delete('/inventory/:id', async (req, res) => {
-  try {
-    const requestedId = parseInt(req.params.id, 10);
-    if (isNaN(requestedId)) {
-      return res.status(400).send('Invalid ID.');
-    }
-    
-    let inventory;
-    try {
-      const dbData = await fs.readFile(database_path, 'utf8');
-      inventory = JSON.parse(dbData);
-    } catch (dbErr) {
-      if (dbErr.code === 'ENOENT') {
-        return res.status(404).send('Inventory database not found.');
-      }
-      throw dbErr;
-    }
-    const itemIndex = inventory.findIndex(i => i.id === requestedId);
-    if (itemIndex === -1) {
-      return res.status(404).send(`Item with ID ${requestedId} not found.`);
-    }
-    const itemToDelete = inventory[itemIndex];
-    inventory.splice(itemIndex, 1);
-
-    await fs.writeFile(database_path, JSON.stringify(inventory, null, 2));
-    if (itemToDelete.photo) {
-      try {
-        await fs.unlink(path.join(cache_path, itemToDelete.photo));
-      } catch (unlinkErr) {
-        console.warn(`Could not delete photo: ${itemToDelete.photo}`, unlinkErr.message);
-      }
-    }
-    res.status(200).send('Item deleted successfully.');
-
-  } catch (err) {
-    console.error('Error processing DELETE /inventory/:id', err);
-    res.status(500).send('Internal Server Error');
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    return res.status(400).send('Invalid ID');
   }
-});
 
-/**
- * @swagger
- * /search:
- *   get:
- *     summary: Пошук елемента інвентаря за ID
- *     tags: [Inventory]
- *     parameters:
- *       - in: query
- *         name: id
- *         schema:
- *           type: integer
- *         required: true
- *       - in: query
- *         name: has_photo
- *         schema:
- *           type: string
- *           enum: [on]
- *         description: Якщо 'on', повертається також URL фото
- *     responses:
- *       200:
- *         description: Результат пошуку
- *       404:
- *         description: Не знайдено
- */
-
-app.get('/search', async (req, res) => {
   try {
-    const { id, has_photo } = req.query;
-    if (!id) {
-      return res.status(400).send('Search ID is required.');
-    }
-    const requestedId = parseInt(id, 10);
-    if (isNaN(requestedId)) {
-      return res.status(400).send('Invalid ID. Must be a number.');
-    }
-    let inventory;
-    try {
-      const dbData = await fs.readFile(database_path, 'utf8');
-      inventory = JSON.parse(dbData);
-    } catch (dbErr) {
-      if (dbErr.code === 'ENOENT') {
-        return res.status(404).send('Inventory database not found.');
-      }
-      throw dbErr;
-    }
-    const item = inventory.find(i => i.id === requestedId);
-    if (!item) {
-      return res.status(404).send(`Item with ID ${requestedId} not found.`);
-    }
-    const { photo, ...rest } = item;
-    const itemResponse = { ...rest }; 
-    const shouldIncludePhoto = (has_photo === 'on');
-    
-    if (shouldIncludePhoto && photo) {
-      itemResponse.photo_url = `/inventory/${item.id}/photo`;
-    }
-    res.json(itemResponse);
+    const result = await pool.query(
+      'DELETE FROM inventory WHERE id = $1 RETURNING id',
+      [id]
+    );
 
+    if (result.rows.length === 0) {
+      return res.status(404).send('Item not found');
+    }
+
+    res.send('Item deleted');
   } catch (err) {
-    console.error('Error processing /search', err);
-    res.status(500).send('Internal Server Error');
+    console.error(err);
+    res.status(500).send('DB error');
   }
-});
-
-app.all('/inventory/:id/photo', (_req, res) => {
-  res.status(405).send('Method Not Allowed');
-});
-
-app.all('/inventory/:id', (_req, res) => {
-  res.status(405).send('Method Not Allowed');
-});
-
-app.all('/inventory', (_req, res) => {
-  res.status(405).send('Method Not Allowed');
 });
 
 (async () => {
   try {
-    await fs.mkdir(cache_path, { recursive: true });
-    console.log('Cache folder directory', cache_path);
     app.listen(PORT, HOST, () => {
       console.log(`Server started on http://${HOST}:${PORT}`);
     });
   } catch (err) {
-    console.error('Error :', err.message);
+    console.error(err);
     process.exit(1);
   }
 })();
