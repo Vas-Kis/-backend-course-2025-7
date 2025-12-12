@@ -291,6 +291,72 @@ app.delete('/inventory/:id', async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /search:
+ *   get:
+ *     summary: Пошук елемента інвентаря за ID
+ *     tags: [Inventory]
+ *     parameters:
+ *       - in: query
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *       - in: query
+ *         name: has_photo
+ *         schema:
+ *           type: string
+ *           enum: [on]
+ *         description: Якщо 'on', повертається також URL фото
+ *     responses:
+ *       200:
+ *         description: Результат пошуку
+ *       404:
+ *         description: Не знайдено
+ */
+app.get('/search', async (req, res) => {
+  try {
+    const { id, has_photo } = req.query;
+
+    if (!id) {
+      return res.status(400).send('Search ID is required.');
+    }
+
+    const requestedId = Number(id);
+    if (isNaN(requestedId)) {
+      return res.status(400).send('Invalid ID. Must be a number.');
+    }
+
+    const result = await pool.query(
+      'SELECT id, name, description, photo FROM inventory WHERE id = $1',
+      [requestedId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).send(`Item with ID ${requestedId} not found.`);
+    }
+
+    const item = result.rows[0];
+    const shouldIncludePhoto = has_photo === 'on';
+
+    const response = {
+      id: item.id,
+      name: item.name,
+      description: item.description,
+    };
+
+    if (shouldIncludePhoto && item.photo) {
+      response.photo_url = `/inventory/${item.id}/photo`;
+    }
+
+    res.json(response);
+  } catch (err) {
+    console.error('Error processing /search', err);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
 (async () => {
   try {
     app.listen(PORT, HOST, () => {
