@@ -12,13 +12,14 @@ services:
     build: .
     ports:
       - "${PORT}:${PORT}"
+      - "9229:9229"
     env_file:
       - .env
     depends_on:
       - db
     volumes:
       - .:/usr/src/app
-    command: npm run dev
+    command: npm run debug
 
   db:
     image: postgres:16
@@ -29,8 +30,8 @@ services:
     ports:
       - "5432:5432"
     volumes:
+      - db_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-
 
 volumes:
   db_data:
