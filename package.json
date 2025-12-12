@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "description": "",
   "main": "main.js",
+  "type": "module",
   "scripts": {
+    "dev": "nodemon main.js",
     "test": "nodemon main.js"
   },
   "author": "",
@@ -19,4 +21,5 @@
   "devDependencies": {
     "nodemon": "^3.1.11"
   }
+
 }
