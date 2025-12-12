@@ -5,7 +5,6 @@ import multer from 'multer';
 import swaggerUi from 'swagger-ui-express';
 import swaggerJsdoc from 'swagger-jsdoc';
 import pkg from 'pg';
-/*yo*/
 const { Pool } = pkg;
 
 const HOST = process.env.HOST || '0.0.0.0';
